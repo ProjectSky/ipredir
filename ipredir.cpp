@@ -9,11 +9,11 @@
 #include <windows.h>
 #include <conio.h>				//_getch()
 
-#include "WinDivert-1.1.6-MSVC/include/windivert.h"
+#include "WinDivert-2.2.0-A/include/windivert.h"
 #include "ipredir.h"
 
 //quick way to link with WinDivert.lib without changing project settings
-#pragma comment(lib, "WinDivert-1.1.6-MSVC/x86/WinDivert")
+#pragma comment(lib, "WinDivert-2.2.0-A/x86/WinDivert")
 
 const int VERSION_MAJOR = 1;
 const int VERSION_MINOR = 0;
@@ -34,7 +34,7 @@ int main(int argc, char* argv[]) {
 	std::vector<std::string> ipsout, ipsin;
 
 	//put args in a string vector for easier handling
-	std::vector<std::string> args = std::vector<std::string>(argv, argv+argc);
+	std::vector<std::string> args = std::vector<std::string>(argv, argv + argc);
 
 	//parse args, get ip map and lists of ips. returns debug mode
 	dbg = parseArgs(args, ipmap, ipsout, ipsin);
@@ -52,7 +52,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	//increase packet queue+timeout
-	if (!WinDivertSetParam(handle, WINDIVERT_PARAM_QUEUE_LEN, 8192)) {
+	if (!WinDivertSetParam(handle, WINDIVERT_PARAM_QUEUE_LENGTH, 8192)) {
 		std::cout << "Unable to set queue length: #" << GetLastError() << std::endl;
 		return 1;
 	}
@@ -104,7 +104,7 @@ DWORD redirThread(LPVOID arg) {
 	while (1)
 	{
 		// Read a matching packet.
-		if (!WinDivertRecv(handle, packet, sizeof(packet), &addr, &packet_len)) {
+		if (!WinDivertRecv(handle, packet, sizeof(packet), &packet_len, &addr)) {
 			//if main thread closed us down, exit nicely
 			if (GetLastError() == ERROR_INVALID_HANDLE || GetLastError() == ERROR_OPERATION_ABORTED)
 				return 0;
@@ -114,10 +114,10 @@ DWORD redirThread(LPVOID arg) {
 		}
 
 		//get pointers to IP and TCP/UDP headers
-		WinDivertHelperParsePacket(packet, packet_len, &piphdr, NULL, NULL, NULL, &ptcphdr, &pudphdr, NULL, NULL);
+		WinDivertHelperParsePacket(packet, packet_len, &piphdr, NULL, NULL, NULL, NULL, &ptcphdr, &pudphdr, NULL, NULL, NULL, NULL);
 
 		//outbound packet, change destination address and save nat entry
-		if (addr.Direction == WINDIVERT_DIRECTION_OUTBOUND) {
+		if (addr.Outbound == 1) {
 			//generate nat tuple
 			nattuple_t tup = {
 				piphdr->Protocol,
@@ -184,13 +184,13 @@ DWORD redirThread(LPVOID arg) {
 		}
 
 		//jumped to if packet is unmodified
-		outputpacket:
+	outputpacket:
 
 		//recalculate checksums
-		WinDivertHelperCalcChecksums(packet, packet_len, 0);
+		WinDivertHelperCalcChecksums(packet, packet_len, &addr, 0);
 
 		//re-inject the packet
-		if (!WinDivertSend(handle, packet, packet_len, &addr, NULL)) {
+		if (!WinDivertSend(handle, packet, packet_len, NULL, &addr)) {
 			std::cout << "Failed to re-inject packet: #" << GetLastError() << std::endl;
 		}
 	}
@@ -242,7 +242,7 @@ int parseArgs(std::vector<std::string> args, ipmap_t& ipmap, std::vector<std::st
 			continue;
 
 		//store 'to' ip
-		strto = arg.substr(eq+1);
+		strto = arg.substr(eq + 1);
 		if (!WinDivertHelperParseIPv4Address(strto.c_str(), &to)) {
 			std::cout << "Unable to parse ip " << strto << ": #" << GetLastError() << std::endl;
 			continue;
@@ -266,14 +266,15 @@ int parseArgs(std::vector<std::string> args, ipmap_t& ipmap, std::vector<std::st
 				//save string form of 'from' ip to add to WinDivert filter
 				ipsout.push_back(strfrom);
 				std::cout << "Adding redirect from " << strfrom << " to " << strto << std::endl;
-			} else {
+			}
+			else {
 				std::cout << "Unable to parse ip " << strfrom << ": #" << GetLastError() << std::endl;
 			}
 
 			//go to next 'from' ip
 			if (comma == std::string::npos)
 				break;
-			arg = arg.substr(comma+1);
+			arg = arg.substr(comma + 1);
 			comma = arg.find(',');
 		}
 	}
@@ -317,14 +318,14 @@ std::string DottedIPv4(UINT32 ip) {
 //return a name for a protocol id
 std::string ProtocolName(UINT8 prot) {
 	switch (prot) {
-		case 0x01: return "ICMP";
-		case 0x06: return "TCP";
-		case 0x11: return "UDP";
-		default: {
-			std::stringstream ss;
-			ss << "0x" << std::hex << (int)prot;
-			return ss.str();
-		}
+	case 0x01: return "ICMP";
+	case 0x06: return "TCP";
+	case 0x11: return "UDP";
+	default: {
+		std::stringstream ss;
+		ss << "0x" << std::hex << (int)prot;
+		return ss.str();
+	}
 	};
 }
 
